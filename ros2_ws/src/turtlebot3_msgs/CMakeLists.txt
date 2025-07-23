@@ -37,12 +37,10 @@ set(msg_files
 set(srv_files
   "srv/Sound.srv"
   "srv/Dqn.srv"
-  "srv/FindWall.srv"
 )
 
 set(action_files
   "action/Patrol.action"
-  "action/OdomRecord.action"
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}
