@@ -1,0 +1,59 @@
+# ROS2 Build artifacts (any workspace)
+**/build/
+**/install/
+**/log/
+
+# RViz configuration files (user-specific preferences)
+.rviz/
+
+# Bash history and user configs (usually personal)
+.bashrc
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.vim/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# C++ build artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+*.out
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Gazebo logs and cache
+.gazebo/
+
+# ROS specific
+*.bag
+*.db3
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Documentation build
+docs/_build/
+
+# Package build info
+COLCON_IGNORE
