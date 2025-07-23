@@ -16,6 +16,8 @@
 *.swo
 *~
 .vim/
+**/.cache/
+
 
 # Python cache
 __pycache__/
