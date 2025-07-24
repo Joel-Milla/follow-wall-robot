@@ -43,6 +43,9 @@ ament_target_dependencies(client_follow_wall_node rclcpp geometry_msgs sensor_ms
 add_executable(service_position_robot_node src/service_position_robot.cpp)
 ament_target_dependencies(service_position_robot_node rclcpp geometry_msgs sensor_msgs custom_messages)
 
+add_executable(action_record_odom_node src/action_record_odom.cpp)
+ament_target_dependencies(action_record_odom_node rclcpp custom_messages)
+
 INSTALL (TARGETS
   client_follow_wall_node
   service_position_robot_node
