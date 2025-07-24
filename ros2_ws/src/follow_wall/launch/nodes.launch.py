@@ -4,9 +4,13 @@ from launch_ros.actions import Node
 def generate_launch_description():
     return LaunchDescription([
         Node(
-            package='turtlesim',
-            namespace='turtlesim1',
-            executable='turtlesim_node',
+            package='follow_wall',
+            executable='service_position_robot_node',
+            output='screen'
+        ),
+        Node(
+            package='follow_wall',
+            executable='client_follow_wall_node',
             output='screen'
         )
     ])
