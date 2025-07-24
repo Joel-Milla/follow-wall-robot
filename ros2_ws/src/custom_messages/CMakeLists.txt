@@ -19,6 +19,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(geometry_msgs REQUIRED)
 
 
 if(BUILD_TESTING)
@@ -36,8 +37,14 @@ set(srv_files
   "srv/FindWall.srv"
 )
 
+set(action_files
+  "action/OdomRecord.action"
+)
+
 rosidl_generate_interfaces(${PROJECT_NAME}
   ${srv_files}
+  ${action_files}
+  DEPENDENCIES geometry_msgs
 )
 
 ament_package()
