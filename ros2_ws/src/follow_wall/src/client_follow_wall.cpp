@@ -184,13 +184,12 @@ int main(int argc, char **argv) {
 
   //* Set the logs of this node and the distance_tracker
   auto _ = rcutils_logging_set_logger_level(client->get_logger().get_name(),
-                                            RCUTILS_LOG_SEVERITY_DEBUG);
+                                            RCUTILS_LOG_SEVERITY_INFO);
   (void)_;
 
   rclcpp::executors::MultiThreadedExecutor executor;
   executor.add_node(client);
   executor.spin();
-  rclcpp::spin(std::make_shared<FollowWall>());
 
   rclcpp::shutdown();
   return 0;

@@ -111,6 +111,7 @@ public:
   }
 
   bool left_side_closer_to_wall() {
+    std::lock_guard<std::mutex> lock(mutex_);
     return indx_min_dist_ < (NUMBER_ANGLES / 2);
   }
 };
