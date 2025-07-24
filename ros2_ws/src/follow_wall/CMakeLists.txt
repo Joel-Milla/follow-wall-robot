@@ -16,13 +16,14 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 # for clang intellisense
-# set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(custom_messages REQUIRED)
 
 
 if(BUILD_TESTING)
@@ -39,8 +40,12 @@ endif()
 add_executable(client_follow_wall_node src/client_follow_wall.cpp)
 ament_target_dependencies(client_follow_wall_node rclcpp geometry_msgs sensor_msgs)
 
+add_executable(service_position_robot_node src/service_position_robot.cpp)
+ament_target_dependencies(service_position_robot_node rclcpp geometry_msgs sensor_msgs custom_messages)
+
 INSTALL (TARGETS
   client_follow_wall_node
+  service_position_robot_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
