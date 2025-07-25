@@ -22,7 +22,8 @@
 
 class DistanceTracker {
 private:
-  static constexpr float PROXIMITY_THRESHOLD = 0.2f;
+  static constexpr float PROXIMITY_THRESHOLD = 0.1f;
+  static constexpr float LEAVE_THRESHOLD = 0.3f;
 
   using Point = geometry_msgs::msg::Point32;
 
@@ -31,6 +32,7 @@ private:
   Point current_pos;
   int completed_laps_;
   rclcpp::Logger logger = rclcpp::get_logger("distance_tracker");
+  bool near_start_position_ = false;
 
   float distance_between(const Point &point1, const Point &point2) {
     float difference_x = (point1.x - point2.x);
@@ -110,10 +112,15 @@ public:
 
     const Point &first_pos = checkpoints[0];
     const Point &last_pos = checkpoints[checkpoints.size() - 1];
+    float distance = distance_between(first_pos, last_pos);
 
-    if (distance_between(first_pos, last_pos) <= PROXIMITY_THRESHOLD) {
+    if (!near_start_position_ && distance <= PROXIMITY_THRESHOLD) {
       completed_laps_++;
+      near_start_position_ = true;
       RCLCPP_DEBUG(logger, "Updated laps to: %i", completed_laps_);
+    } else if (near_start_position_ && distance > LEAVE_THRESHOLD) {
+      near_start_position_ = false;
+      RCLCPP_DEBUG(logger, "Robot left the area");
     }
   }
 

@@ -1,8 +1,12 @@
+#include <atomic>
 #include <chrono>
+#include <custom_messages/action/detail/odom_record__struct.hpp>
 #include <custom_messages/srv/detail/find_wall__struct.hpp>
 #include <experimental/string_view>
+#include <future>
 #include <geometry_msgs/msg/detail/twist__struct.hpp>
 #include <memory>
+#include <rclcpp/callback_group.hpp>
 #include <rclcpp/client.hpp>
 #include <rclcpp/executors.hpp>
 #include <rclcpp/executors/multi_threaded_executor.hpp>
@@ -13,7 +17,10 @@
 #include <rclcpp/node.hpp>
 #include <rclcpp/publisher.hpp>
 #include <rclcpp/utilities.hpp>
+#include <rclcpp_action/client.hpp>
+#include <rclcpp_action/create_client.hpp>
 #include <rcutils/logging.h>
+#include <rmw/types.h>
 #include <sensor_msgs/msg/detail/laser_scan__struct.hpp>
 #include <string>
 
@@ -30,20 +37,26 @@ private:
   static constexpr float LINEAR_VEL = 0.07;
   static constexpr float ANGULAR_VEL = 0.23;
   static constexpr float DIVING_VEL = 0.6;
-  static constexpr float NO_ANGULAR_VEL = 0;
+  static constexpr float NO_VEL = 0;
   static constexpr const char *SERVICE_NAME = "position_robot";
+  static constexpr const char *SRV_ACTION_NAME = "record_odom";
 
   //* Shortening names
   using LaserScan = sensor_msgs::msg::LaserScan;
   using TwistMsg = geometry_msgs::msg::Twist;
   using FindWall = custom_messages::srv::FindWall;
+  using OdomMsg = custom_messages::action::OdomRecord;
+  using GoalHandle = rclcpp_action::ClientGoalHandle<OdomMsg>;
 
-  enum State { IDLE, GET_CLOSER, GET_FARTHER, DIVE_LEFT };
+  enum State { IDLE, GET_CLOSER, GET_FARTHER, DIVE_LEFT, STOP };
   State curr_state_{IDLE};
+  std::atomic<bool> goal_done_;
 
-  //* Subscriber and publishers
+  //* Subscriber, publishers, clients
   rclcpp::Subscription<LaserScan>::SharedPtr sub_scan_;
   rclcpp::Publisher<TwistMsg>::SharedPtr pub_vel_;
+  rclcpp_action::Client<OdomMsg>::SharedPtr act_odom_;
+  rclcpp::CallbackGroup::SharedPtr act_odom_group_;
 
   /**
    * @brief Get the state of the robot based on ranges
@@ -55,6 +68,10 @@ private:
   State get_state(const std::vector<float> &ranges) {
     float right_wall_distance = ranges[RIGHT_WALL_ANGLE];
     float front_robot_distance = ranges[FRONT_WALL_ANGLE];
+
+    if (is_goal_done()) {
+      return State::STOP;
+    }
 
     if (front_robot_distance < MIN_DIST_FRONT_WALL) {
       return State::DIVE_LEFT;
@@ -72,6 +89,10 @@ private:
    */
   void perform_action() {
     switch (curr_state_) {
+    case State::STOP:
+      RCLCPP_DEBUG(this->get_logger(), "STOPPING");
+      publish_vel(NO_VEL, NO_VEL);
+      break;
     case State::GET_CLOSER:
       RCLCPP_DEBUG(this->get_logger(), "GETTING CLOSER");
       publish_vel(LINEAR_VEL, -1 * ANGULAR_VEL);
@@ -85,7 +106,7 @@ private:
       publish_vel(LINEAR_VEL, DIVING_VEL);
       break;
     default:
-      publish_vel(LINEAR_VEL, NO_ANGULAR_VEL);
+      publish_vel(LINEAR_VEL, NO_VEL);
       break;
     }
   }
@@ -129,6 +150,93 @@ private:
     pub_vel_ = this->create_publisher<TwistMsg>(PUB_NAME, GLOBAL_QOS);
   }
 
+  void goal_response_callback(const GoalHandle::SharedPtr &goal_handle) {
+    if (!goal_handle) {
+      RCLCPP_ERROR(this->get_logger(), "Goal was rejected by server");
+    } else {
+      RCLCPP_INFO(this->get_logger(),
+                  "Goal accepted by server, waiting for result");
+    }
+  }
+
+  void
+  feedback_callback(GoalHandle::SharedPtr,
+                    const std::shared_ptr<const OdomMsg::Feedback> feedback) {
+    RCLCPP_INFO(this->get_logger(), "Feedback received: %f",
+                feedback->current_total);
+  }
+
+  void result_callback(const GoalHandle::WrappedResult &result) {
+    goal_done_ = true;
+    // Immediately stop the robot
+    publish_vel(NO_VEL, NO_VEL);
+
+    switch (result.code) {
+    case rclcpp_action::ResultCode::UNKNOWN:
+      RCLCPP_ERROR(this->get_logger(), "Unknown result code");
+      return;
+    case rclcpp_action::ResultCode::SUCCEEDED:
+      RCLCPP_INFO(this->get_logger(), "Number of odoms: %i",
+                  result.result->list_of_odoms.size());
+      return;
+    case rclcpp_action::ResultCode::CANCELED:
+      RCLCPP_ERROR(this->get_logger(), "Goal was canceled");
+      return;
+    case rclcpp_action::ResultCode::ABORTED:
+      RCLCPP_ERROR(this->get_logger(), "Goal was aborted");
+      return;
+    }
+  }
+
+  void send_goal() {
+    if (!this->act_odom_) {
+      RCLCPP_ERROR(this->get_logger(), "Action client not initialized");
+      return;
+    }
+
+    if (!this->act_odom_->wait_for_action_server(std::chrono::seconds(10))) {
+      RCLCPP_ERROR(this->get_logger(), "Action not available");
+      goal_done_ = true;
+      return;
+    }
+
+    auto goal = OdomMsg::Goal();
+    goal.num_laps = 2;
+
+    RCLCPP_DEBUG(this->get_logger(), "Sending goal");
+    auto send_goal_options = rclcpp_action::Client<OdomMsg>::SendGoalOptions();
+
+    send_goal_options.goal_response_callback =
+        [this](std::shared_future<std::shared_ptr<GoalHandle>> goal_handle) {
+          auto goal = goal_handle.get();
+          this->goal_response_callback(goal);
+        };
+
+    send_goal_options.feedback_callback =
+        [this](GoalHandle::SharedPtr _,
+               const std::shared_ptr<const OdomMsg::Feedback> feedback) {
+          this->feedback_callback(_, feedback);
+        };
+
+    send_goal_options.result_callback =
+        [this](const GoalHandle::WrappedResult result) {
+          this->result_callback(result);
+        };
+
+    auto goal_handle_future =
+        this->act_odom_->async_send_goal(goal, send_goal_options);
+  }
+
+  void initialize_action() {
+    act_odom_group_ = this->create_callback_group(
+        rclcpp::CallbackGroupType::MutuallyExclusive);
+    act_odom_ = rclcpp_action::create_client<OdomMsg>(
+        this->get_node_base_interface(), this->get_node_graph_interface(),
+        this->get_node_logging_interface(),
+        this->get_node_waitables_interface(), SRV_ACTION_NAME, act_odom_group_);
+    send_goal();
+  }
+
   /**
    * @brief This function calls the service in charge of finding the wall and
    * positioning the robot parallel to it.
@@ -167,14 +275,17 @@ private:
     }
 
     initialize_subscriber_publisher();
+    initialize_action();
   }
 
 public:
-  explicit FollowWall() : Node("client_follow_wall_node") {
+  explicit FollowWall() : Node("client_follow_wall_node"), goal_done_(false) {
     //* Call first the service, which then will initialize the subscriber and
     // perform the action
     call_service();
   }
+
+  bool is_goal_done() { return goal_done_; }
 };
 
 int main(int argc, char **argv) {
@@ -189,7 +300,10 @@ int main(int argc, char **argv) {
 
   rclcpp::executors::MultiThreadedExecutor executor;
   executor.add_node(client);
-  executor.spin();
+
+  while (!client->is_goal_done() && rclcpp::ok()) {
+    executor.spin_some();
+  }
 
   rclcpp::shutdown();
   return 0;
