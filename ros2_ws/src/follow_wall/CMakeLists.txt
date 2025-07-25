@@ -24,6 +24,8 @@ find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(custom_messages REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(rclcpp_action REQUIRED)
 
 
 if(BUILD_TESTING)
@@ -44,11 +46,12 @@ add_executable(service_position_robot_node src/service_position_robot.cpp)
 ament_target_dependencies(service_position_robot_node rclcpp geometry_msgs sensor_msgs custom_messages)
 
 add_executable(action_record_odom_node src/action_record_odom.cpp)
-ament_target_dependencies(action_record_odom_node rclcpp custom_messages)
+ament_target_dependencies(action_record_odom_node rclcpp custom_messages nav_msgs rclcpp_action geometry_msgs)
 
 INSTALL (TARGETS
   client_follow_wall_node
   service_position_robot_node
+  action_record_odom_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
