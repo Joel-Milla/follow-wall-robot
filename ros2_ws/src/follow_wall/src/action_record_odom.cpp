@@ -20,7 +20,7 @@
 #include <thread>
 #include <vector>
 
-struct DistanceTracker {
+class DistanceTracker {
 private:
   static constexpr float PROXIMITY_THRESHOLD = 0.2f;
 
@@ -29,7 +29,7 @@ private:
   std::mutex mutex_;
   std::vector<Point> checkpoints;
   Point current_pos;
-  int completed_laps_{0};
+  int completed_laps_;
   rclcpp::Logger logger = rclcpp::get_logger("distance_tracker");
 
   float distance_between(const Point &point1, const Point &point2) {
@@ -40,7 +40,16 @@ private:
   }
 
 public:
-  int target_laps{0};
+  //* Reset all the variables with the default values
+  void reset() {
+    completed_laps_ = 0;
+    target_laps = 0;
+    has_received_odom_message = false;
+    checkpoints = std::vector<Point>();
+  }
+
+  bool has_received_odom_message; //* When true, can start creating checkpoints
+  int target_laps;
   /**
    * @brief Function called by the subscriber of main class that updates the
    * current odometry of robot
@@ -52,6 +61,9 @@ public:
   void update_position(float new_x, float new_y, float new_theta) {
     std::lock_guard<std::mutex> lock{mutex_};
 
+    //* After this is set to true, it means that the current_pos has a valid
+    // position, and will save it
+    has_received_odom_message = true;
     current_pos.set__x(new_x);
     current_pos.set__y(new_y);
     current_pos.set__z(new_theta);
@@ -66,6 +78,10 @@ public:
    */
   float create_checkpoint() {
     std::lock_guard<std::mutex> lock{mutex_};
+
+    if (!has_received_odom_message)
+      return 0.0f;
+
     size_t num_checkpoints = checkpoints.size();
     if (checkpoints.empty()) {
       checkpoints.push_back(current_pos);
@@ -120,7 +136,7 @@ private:
   static constexpr const char *SUB_NAME = "odom";
   static constexpr const char *SRV_ACTION_NAME = "record_odom";
   static constexpr int GENERAL_QOS = 10;
-  static constexpr float HZ_FREQUENCY = (1.0f / 3.0f); //* Updates per second
+  static constexpr float HZ_FREQUENCY = (1.0f / 2.0f); //* Updates per second
 
   //* RCLCPP varaibles
   rclcpp_action::Server<OdomRecord>::SharedPtr srv_odom_;
@@ -173,10 +189,19 @@ private:
     std::thread([this, goal_handle]() { this->execute(goal_handle); }).detach();
   }
 
+  //* The next two functions reset the state management variables before/after
+  // the action server execution
+  void reset_before_execution() {
+    curr_state = PROCESSING;
+    tracker_.reset();
+  }
+
+  void reset_after_execution() { curr_state = IDLE; }
+
   void execute(const std::shared_ptr<GoalHandle> &goal_handle) {
     RCLCPP_DEBUG(this->get_logger(), "Starting main execution");
 
-    curr_state = PROCESSING;
+    reset_before_execution();
     const auto goal = goal_handle->get_goal();
     auto feedback = std::make_shared<OdomRecord::Feedback>();
     auto result = std::make_shared<OdomRecord::Result>();
@@ -213,7 +238,7 @@ private:
     }
 
     RCLCPP_DEBUG(this->get_logger(), "Finished execution");
-    curr_state = IDLE;
+    reset_after_execution();
   }
 
 public:
