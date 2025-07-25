@@ -40,7 +40,7 @@ if(BUILD_TESTING)
 endif()
 
 add_executable(client_follow_wall_node src/client_follow_wall.cpp)
-ament_target_dependencies(client_follow_wall_node rclcpp geometry_msgs sensor_msgs custom_messages)
+ament_target_dependencies(client_follow_wall_node rclcpp geometry_msgs sensor_msgs custom_messages rclcpp_action)
 
 add_executable(service_position_robot_node src/service_position_robot.cpp)
 ament_target_dependencies(service_position_robot_node rclcpp geometry_msgs sensor_msgs custom_messages)
