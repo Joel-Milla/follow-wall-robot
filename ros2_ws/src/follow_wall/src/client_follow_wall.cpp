@@ -1,3 +1,4 @@
+#include "follow_wall/scan_processor.hpp"
 #include <atomic>
 #include <chrono>
 #include <custom_messages/action/detail/odom_record__struct.hpp>
@@ -30,13 +31,13 @@ private:
   static constexpr const char *SUB_NAME = "scan";
   static constexpr const char *PUB_NAME = "cmd_vel";
   static constexpr int GLOBAL_QOS = 10;
-  static constexpr int RIGHT_WALL_ANGLE = 270;
-  static constexpr int FRONT_WALL_ANGLE = 0;
-  static constexpr float MIN_DIST_RIGHT_WALL = 0.22;
-  static constexpr float MIN_DIST_FRONT_WALL = 0.5;
-  static constexpr float LINEAR_VEL = 0.07;
-  static constexpr float ANGULAR_VEL = 0.23;
-  static constexpr float DIVING_VEL = 0.6;
+  // static constexpr int RIGHT_WALL_ANGLE = 270;
+  // static constexpr int FRONT_WALL_ANGLE = 0;
+  // static constexpr float MIN_DIST_RIGHT_WALL = 0.22;
+  // static constexpr float MIN_DIST_FRONT_WALL = 0.5;
+  static constexpr float LINEAR_VEL = 0.14;
+  static constexpr float ANGULAR_VEL = 0.46;
+  static constexpr float DIVING_VEL = 1.2;
   static constexpr float NO_VEL = 0;
   static constexpr const char *SERVICE_NAME = "position_robot";
   static constexpr const char *SRV_ACTION_NAME = "record_odom";
@@ -48,8 +49,8 @@ private:
   using OdomMsg = custom_messages::action::OdomRecord;
   using GoalHandle = rclcpp_action::ClientGoalHandle<OdomMsg>;
 
-  enum State { IDLE, GET_CLOSER, GET_FARTHER, DIVE_LEFT, STOP };
-  State curr_state_{IDLE};
+  using State = ScanProcessor::State;
+  State curr_state_{ScanProcessor::IDLE};
   std::atomic<bool> goal_done_;
 
   //* Subscriber, publishers, clients
@@ -58,6 +59,9 @@ private:
   rclcpp_action::Client<OdomMsg>::SharedPtr act_odom_;
   rclcpp::CallbackGroup::SharedPtr act_odom_group_;
 
+  //* Helper functions
+  std::unique_ptr<ScanProcessor> scan_processor;
+
   /**
    * @brief Get the state of the robot based on ranges
    *
@@ -65,22 +69,22 @@ private:
    * an object at that angle
    * @return state of the robot
    */
-  State get_state(const std::vector<float> &ranges) {
-    float right_wall_distance = ranges[RIGHT_WALL_ANGLE];
-    float front_robot_distance = ranges[FRONT_WALL_ANGLE];
+  // State get_state(const std::vector<float> &ranges) {
+  //   float right_wall_distance = ranges[RIGHT_WALL_ANGLE];
+  //   float front_robot_distance = ranges[FRONT_WALL_ANGLE];
 
-    if (is_goal_done()) {
-      return State::STOP;
-    }
+  //   if (is_goal_done()) {
+  //     return State::STOP;
+  //   }
 
-    if (front_robot_distance < MIN_DIST_FRONT_WALL) {
-      return State::DIVE_LEFT;
-    } else if (right_wall_distance < MIN_DIST_RIGHT_WALL) {
-      return State::GET_FARTHER;
-    } else {
-      return State::GET_CLOSER;
-    }
-  }
+  //   if (front_robot_distance < MIN_DIST_FRONT_WALL) {
+  //     return State::DIVE_LEFT;
+  //   } else if (right_wall_distance < MIN_DIST_RIGHT_WALL) {
+  //     return State::GET_FARTHER;
+  //   } else {
+  //     return State::GET_CLOSER;
+  //   }
+  // }
 
   /**
    * @brief Depending on the current state, publish the next movement of the
@@ -134,7 +138,7 @@ private:
   void scan_callback(const LaserScan::SharedPtr &message) {
     const auto ranges = message->ranges;
 
-    const State new_state = get_state(ranges);
+    const State new_state = scan_processor->determine_state(ranges);
     if (curr_state_ != new_state) {
       curr_state_ = new_state;
       perform_action();
@@ -201,7 +205,7 @@ private:
     }
 
     auto goal = OdomMsg::Goal();
-    goal.num_laps = 2;
+    goal.num_laps = 1;
 
     RCLCPP_DEBUG(this->get_logger(), "Sending goal");
     auto send_goal_options = rclcpp_action::Client<OdomMsg>::SendGoalOptions();
@@ -280,8 +284,9 @@ private:
 
 public:
   explicit FollowWall() : Node("client_follow_wall_node"), goal_done_(false) {
-    //* Call first the service, which then will initialize the subscriber and
-    // perform the action
+    scan_processor = std::make_unique<ScanProcessor>(this->get_logger());
+
+    //* Call first the service, which then will initialize the subscriber and perform the action
     call_service();
   }
 

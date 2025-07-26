@@ -39,6 +39,8 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
+include_directories(include)
+
 add_executable(client_follow_wall_node src/client_follow_wall.cpp)
 ament_target_dependencies(client_follow_wall_node rclcpp geometry_msgs sensor_msgs custom_messages rclcpp_action)
 
