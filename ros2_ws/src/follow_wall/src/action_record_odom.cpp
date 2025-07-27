@@ -143,7 +143,7 @@ private:
   static constexpr const char *SUB_NAME = "odom";
   static constexpr const char *SRV_ACTION_NAME = "record_odom";
   static constexpr int GENERAL_QOS = 10;
-  static constexpr float HZ_FREQUENCY = (1.0f / 2.0f); //* Updates per second
+  static constexpr float HZ_FREQUENCY = 1.0f; //* Updates per second
 
   //* RCLCPP varaibles
   rclcpp_action::Server<OdomRecord>::SharedPtr srv_odom_;

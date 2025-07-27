@@ -1,10 +1,16 @@
 #pragma once
 
+#include "follow_wall/common_types.hpp"
 #include <rclcpp/logger.hpp>
 #include <vector>
 
+/**
+ * @brief Handles laser scan processing and state determination
+ */
 class ScanProcessor {
 private:
+  using State = FollowWallTypes::State;
+
   static constexpr int RIGHT_WALL_ANGLE = 270;
   static constexpr int FRONT_WALL_ANGLE = 0;
   static constexpr float MIN_DIST_RIGHT_WALL = 0.22;
@@ -13,7 +19,6 @@ private:
   rclcpp::Logger logger_;
 
 public:
-  enum State { IDLE, GET_CLOSER, GET_FARTHER, DIVE_LEFT, STOP };
   explicit ScanProcessor(rclcpp::Logger logger) : logger_(logger) {}
 
   /**
@@ -36,14 +41,3 @@ public:
     }
   }
 };
-
-/*
-
-ScanProcessor
-- Will determine the state, what needs to be done
-- So this will have the curr_position?
-- how to manage the editing of multiple threads?
-- will it need to have a lock for every action?
--
-
-*/

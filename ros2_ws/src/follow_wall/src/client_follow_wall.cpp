@@ -1,3 +1,5 @@
+#include "follow_wall/common_types.hpp"
+#include "follow_wall/movement_controller.hpp"
 #include "follow_wall/scan_processor.hpp"
 #include <atomic>
 #include <chrono>
@@ -31,14 +33,6 @@ private:
   static constexpr const char *SUB_NAME = "scan";
   static constexpr const char *PUB_NAME = "cmd_vel";
   static constexpr int GLOBAL_QOS = 10;
-  // static constexpr int RIGHT_WALL_ANGLE = 270;
-  // static constexpr int FRONT_WALL_ANGLE = 0;
-  // static constexpr float MIN_DIST_RIGHT_WALL = 0.22;
-  // static constexpr float MIN_DIST_FRONT_WALL = 0.5;
-  static constexpr float LINEAR_VEL = 0.14;
-  static constexpr float ANGULAR_VEL = 0.46;
-  static constexpr float DIVING_VEL = 1.2;
-  static constexpr float NO_VEL = 0;
   static constexpr const char *SERVICE_NAME = "position_robot";
   static constexpr const char *SRV_ACTION_NAME = "record_odom";
 
@@ -48,9 +42,9 @@ private:
   using FindWall = custom_messages::srv::FindWall;
   using OdomMsg = custom_messages::action::OdomRecord;
   using GoalHandle = rclcpp_action::ClientGoalHandle<OdomMsg>;
+  using State = FollowWallTypes::State;
 
-  using State = ScanProcessor::State;
-  State curr_state_{ScanProcessor::IDLE};
+  State curr_state_{State::IDLE};
   std::atomic<bool> goal_done_;
 
   //* Subscriber, publishers, clients
@@ -60,74 +54,8 @@ private:
   rclcpp::CallbackGroup::SharedPtr act_odom_group_;
 
   //* Helper functions
-  std::unique_ptr<ScanProcessor> scan_processor;
-
-  /**
-   * @brief Get the state of the robot based on ranges
-   *
-   * @param ranges is an array of size 360, where each angle is the distance to
-   * an object at that angle
-   * @return state of the robot
-   */
-  // State get_state(const std::vector<float> &ranges) {
-  //   float right_wall_distance = ranges[RIGHT_WALL_ANGLE];
-  //   float front_robot_distance = ranges[FRONT_WALL_ANGLE];
-
-  //   if (is_goal_done()) {
-  //     return State::STOP;
-  //   }
-
-  //   if (front_robot_distance < MIN_DIST_FRONT_WALL) {
-  //     return State::DIVE_LEFT;
-  //   } else if (right_wall_distance < MIN_DIST_RIGHT_WALL) {
-  //     return State::GET_FARTHER;
-  //   } else {
-  //     return State::GET_CLOSER;
-  //   }
-  // }
-
-  /**
-   * @brief Depending on the current state, publish the next movement of the
-   * robot
-   *
-   */
-  void perform_action() {
-    switch (curr_state_) {
-    case State::STOP:
-      RCLCPP_DEBUG(this->get_logger(), "STOPPING");
-      publish_vel(NO_VEL, NO_VEL);
-      break;
-    case State::GET_CLOSER:
-      RCLCPP_DEBUG(this->get_logger(), "GETTING CLOSER");
-      publish_vel(LINEAR_VEL, -1 * ANGULAR_VEL);
-      break;
-    case State::GET_FARTHER:
-      RCLCPP_DEBUG(this->get_logger(), "GETTING FARTHER");
-      publish_vel(LINEAR_VEL, ANGULAR_VEL);
-      break;
-    case State::DIVE_LEFT:
-      RCLCPP_DEBUG(this->get_logger(), "DIVING LEFT");
-      publish_vel(LINEAR_VEL, DIVING_VEL);
-      break;
-    default:
-      publish_vel(LINEAR_VEL, NO_VEL);
-      break;
-    }
-  }
-
-  /**
-   * @brief Publish velocity to the robot
-   *
-   * @param linear_x tells the velocity of the robot moving forward/backward
-   * @param angular_z tells the velocity of the rotation of the robot
-   */
-  void publish_vel(float linear_x, float angular_z) {
-    auto msg = TwistMsg();
-    msg.linear.x = linear_x;
-    msg.angular.z = angular_z;
-
-    pub_vel_->publish(msg);
-  }
+  std::unique_ptr<ScanProcessor> scan_processor_;
+  std::unique_ptr<MovementController> movement_controller_;
 
   /**
    * @brief Maintain the robot at least 0.2m close to the right wall and circle
@@ -138,20 +66,25 @@ private:
   void scan_callback(const LaserScan::SharedPtr &message) {
     const auto ranges = message->ranges;
 
-    const State new_state = scan_processor->determine_state(ranges);
+    const State new_state = scan_processor_->determine_state(ranges);
     if (curr_state_ != new_state) {
       curr_state_ = new_state;
-      perform_action();
+      movement_controller_->perform_action(curr_state_);
     }
   }
 
-  void initialize_subscriber_publisher() {
+  void initialize_publisher() {
+    //* Need to initialize movement_controller when pub_vel is available
+    pub_vel_ = this->create_publisher<TwistMsg>(PUB_NAME, GLOBAL_QOS);
+    movement_controller_ =
+        std::make_unique<MovementController>(this->get_logger(), pub_vel_);
+  }
+
+  void initialize_subscriber() {
     //* Create both publisher and subscriber
     sub_scan_ = this->create_subscription<LaserScan>(
         SUB_NAME, GLOBAL_QOS,
         [this](const LaserScan::SharedPtr msg) { this->scan_callback(msg); });
-
-    pub_vel_ = this->create_publisher<TwistMsg>(PUB_NAME, GLOBAL_QOS);
   }
 
   void goal_response_callback(const GoalHandle::SharedPtr &goal_handle) {
@@ -173,7 +106,7 @@ private:
   void result_callback(const GoalHandle::WrappedResult &result) {
     goal_done_ = true;
     // Immediately stop the robot
-    publish_vel(NO_VEL, NO_VEL);
+    movement_controller_->stop_robot();
 
     switch (result.code) {
     case rclcpp_action::ResultCode::UNKNOWN:
@@ -278,15 +211,17 @@ private:
       return;
     }
 
-    initialize_subscriber_publisher();
+    initialize_subscriber();
+    initialize_publisher();
     initialize_action();
   }
 
 public:
   explicit FollowWall() : Node("client_follow_wall_node"), goal_done_(false) {
-    scan_processor = std::make_unique<ScanProcessor>(this->get_logger());
+    scan_processor_ = std::make_unique<ScanProcessor>(this->get_logger());
 
-    //* Call first the service, which then will initialize the subscriber and perform the action
+    //* Call first the service, which then will initialize the subscriber and
+    // perform the action
     call_service();
   }
 
