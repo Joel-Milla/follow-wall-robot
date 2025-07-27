@@ -1,3 +1,4 @@
+#include "follow_wall/action_manager.hpp"
 #include "follow_wall/common_types.hpp"
 #include "follow_wall/movement_controller.hpp"
 #include "follow_wall/scan_processor.hpp"
@@ -34,7 +35,7 @@ private:
   static constexpr const char *PUB_NAME = "cmd_vel";
   static constexpr int GLOBAL_QOS = 10;
   static constexpr const char *SERVICE_NAME = "position_robot";
-  static constexpr const char *SRV_ACTION_NAME = "record_odom";
+  static constexpr const char *SRVR_ACTION_NAME = "record_odom";
 
   //* Shortening names
   using LaserScan = sensor_msgs::msg::LaserScan;
@@ -56,6 +57,8 @@ private:
   //* Helper functions
   std::unique_ptr<ScanProcessor> scan_processor_;
   std::unique_ptr<MovementController> movement_controller_;
+  std::unique_ptr<ActionManager> action_manager_;
+  rclcpp::Logger own_logger_ = this->get_logger();
 
   /**
    * @brief Maintain the robot at least 0.2m close to the right wall and circle
@@ -77,7 +80,7 @@ private:
     //* Need to initialize movement_controller when pub_vel is available
     pub_vel_ = this->create_publisher<TwistMsg>(PUB_NAME, GLOBAL_QOS);
     movement_controller_ =
-        std::make_unique<MovementController>(this->get_logger(), pub_vel_);
+        std::make_unique<MovementController>(own_logger_, pub_vel_);
   }
 
   void initialize_subscriber() {
@@ -87,91 +90,23 @@ private:
         [this](const LaserScan::SharedPtr msg) { this->scan_callback(msg); });
   }
 
-  void goal_response_callback(const GoalHandle::SharedPtr &goal_handle) {
-    if (!goal_handle) {
-      RCLCPP_ERROR(this->get_logger(), "Goal was rejected by server");
-    } else {
-      RCLCPP_INFO(this->get_logger(),
-                  "Goal accepted by server, waiting for result");
-    }
-  }
-
-  void
-  feedback_callback(GoalHandle::SharedPtr,
-                    const std::shared_ptr<const OdomMsg::Feedback> feedback) {
-    RCLCPP_INFO(this->get_logger(), "Feedback received: %f",
-                feedback->current_total);
-  }
-
-  void result_callback(const GoalHandle::WrappedResult &result) {
-    goal_done_ = true;
-    // Immediately stop the robot
-    movement_controller_->stop_robot();
-
-    switch (result.code) {
-    case rclcpp_action::ResultCode::UNKNOWN:
-      RCLCPP_ERROR(this->get_logger(), "Unknown result code");
-      return;
-    case rclcpp_action::ResultCode::SUCCEEDED:
-      RCLCPP_INFO(this->get_logger(), "Number of odoms: %i",
-                  result.result->list_of_odoms.size());
-      return;
-    case rclcpp_action::ResultCode::CANCELED:
-      RCLCPP_ERROR(this->get_logger(), "Goal was canceled");
-      return;
-    case rclcpp_action::ResultCode::ABORTED:
-      RCLCPP_ERROR(this->get_logger(), "Goal was aborted");
-      return;
-    }
-  }
-
-  void send_goal() {
-    if (!this->act_odom_) {
-      RCLCPP_ERROR(this->get_logger(), "Action client not initialized");
-      return;
-    }
-
-    if (!this->act_odom_->wait_for_action_server(std::chrono::seconds(10))) {
-      RCLCPP_ERROR(this->get_logger(), "Action not available");
-      goal_done_ = true;
-      return;
-    }
-
-    auto goal = OdomMsg::Goal();
-    goal.num_laps = 1;
-
-    RCLCPP_DEBUG(this->get_logger(), "Sending goal");
-    auto send_goal_options = rclcpp_action::Client<OdomMsg>::SendGoalOptions();
-
-    send_goal_options.goal_response_callback =
-        [this](std::shared_future<std::shared_ptr<GoalHandle>> goal_handle) {
-          auto goal = goal_handle.get();
-          this->goal_response_callback(goal);
-        };
-
-    send_goal_options.feedback_callback =
-        [this](GoalHandle::SharedPtr _,
-               const std::shared_ptr<const OdomMsg::Feedback> feedback) {
-          this->feedback_callback(_, feedback);
-        };
-
-    send_goal_options.result_callback =
-        [this](const GoalHandle::WrappedResult result) {
-          this->result_callback(result);
-        };
-
-    auto goal_handle_future =
-        this->act_odom_->async_send_goal(goal, send_goal_options);
-  }
-
   void initialize_action() {
     act_odom_group_ = this->create_callback_group(
         rclcpp::CallbackGroupType::MutuallyExclusive);
     act_odom_ = rclcpp_action::create_client<OdomMsg>(
         this->get_node_base_interface(), this->get_node_graph_interface(),
         this->get_node_logging_interface(),
-        this->get_node_waitables_interface(), SRV_ACTION_NAME, act_odom_group_);
-    send_goal();
+        this->get_node_waitables_interface(), SRVR_ACTION_NAME, act_odom_group_);
+
+    auto finish_execution = [this]() {
+      this->goal_done_ = false;
+      this->movement_controller_->stop_robot();
+    };
+
+    action_manager_ =
+        std::make_unique<ActionManager>(own_logger_, act_odom_, finish_execution);
+
+    action_manager_->start_action_async();
   }
 
   /**
@@ -199,7 +134,7 @@ private:
     executor.add_node(this->get_node_base_interface());
     if (executor.spin_until_future_complete(future) !=
         rclcpp::FutureReturnCode::SUCCESS) {
-      RCLCPP_ERROR(this->get_logger(),
+      RCLCPP_ERROR(own_logger_,
                    "Failed to receive LocalizePart service response");
       return;
     }
@@ -207,7 +142,7 @@ private:
 
     auto response = future.get();
     if (!response->wallfound) {
-      RCLCPP_ERROR(this->get_logger(), "Service failed");
+      RCLCPP_ERROR(own_logger_, "Service failed");
       return;
     }
 
@@ -218,7 +153,7 @@ private:
 
 public:
   explicit FollowWall() : Node("client_follow_wall_node"), goal_done_(false) {
-    scan_processor_ = std::make_unique<ScanProcessor>(this->get_logger());
+    scan_processor_ = std::make_unique<ScanProcessor>(own_logger_);
 
     //* Call first the service, which then will initialize the subscriber and
     // perform the action
