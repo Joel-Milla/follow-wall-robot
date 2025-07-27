@@ -2,10 +2,9 @@
 
 This project features a robot that autonomously finds a wall, positions itself parallel to it, and completes a specified number of laps around the track.
 
-<video width="600" controls>
-  <source src="./README_FOLDER/robot_moving.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
+![Robot Demo](./README_FOLDER/robot_moving.gif)
+
+*[Watch full video](./README_FOLDER/robot_moving.mp4)*
 
 ## Technical Information
 
