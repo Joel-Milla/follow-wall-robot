@@ -1,11 +1,11 @@
 #pragma once
 
-#include <algorithm>
 #include <custom_messages/action/detail/odom_record__struct.hpp>
 #include <functional>
 #include <memory>
 #include <rclcpp/logger.hpp>
 #include <rclcpp_action/client.hpp>
+
 class ActionManager {
 private:
   using OdomMsg = custom_messages::action::OdomRecord;

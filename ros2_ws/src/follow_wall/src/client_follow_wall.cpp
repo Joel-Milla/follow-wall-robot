@@ -42,7 +42,6 @@ private:
   using TwistMsg = geometry_msgs::msg::Twist;
   using FindWall = custom_messages::srv::FindWall;
   using OdomMsg = custom_messages::action::OdomRecord;
-  using GoalHandle = rclcpp_action::ClientGoalHandle<OdomMsg>;
   using State = FollowWallTypes::State;
 
   State curr_state_{State::IDLE};
@@ -96,15 +95,17 @@ private:
     act_odom_ = rclcpp_action::create_client<OdomMsg>(
         this->get_node_base_interface(), this->get_node_graph_interface(),
         this->get_node_logging_interface(),
-        this->get_node_waitables_interface(), SRVR_ACTION_NAME, act_odom_group_);
+        this->get_node_waitables_interface(), SRVR_ACTION_NAME,
+        act_odom_group_);
 
+    //* Lambda function that when the action finishes, needs to be executed
     auto finish_execution = [this]() {
       this->goal_done_ = false;
       this->movement_controller_->stop_robot();
     };
 
-    action_manager_ =
-        std::make_unique<ActionManager>(own_logger_, act_odom_, finish_execution);
+    action_manager_ = std::make_unique<ActionManager>(own_logger_, act_odom_,
+                                                      finish_execution);
 
     action_manager_->start_action_async();
   }
@@ -145,10 +146,6 @@ private:
       RCLCPP_ERROR(own_logger_, "Service failed");
       return;
     }
-
-    initialize_subscriber();
-    initialize_publisher();
-    initialize_action();
   }
 
 public:
@@ -158,6 +155,9 @@ public:
     //* Call first the service, which then will initialize the subscriber and
     // perform the action
     call_service();
+    initialize_subscriber();
+    initialize_publisher();
+    initialize_action();
   }
 
   bool is_goal_done() { return goal_done_; }

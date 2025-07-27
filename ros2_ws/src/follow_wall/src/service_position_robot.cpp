@@ -126,8 +126,8 @@ private:
   static constexpr const char *SUBSCRIBER_TOPIC_NAME = "scan";
   static constexpr const char *SERVICE_NAME = "position_robot";
   static constexpr int GENERAL_QOS = 10;
-  static constexpr float LINEAR_VEL = 0.1;
-  static constexpr float ANGULAR_VEL = 0.3;
+  static constexpr float LINEAR_VEL = 0.2;
+  static constexpr float ANGULAR_VEL = 0.6;
   static constexpr float NO_VEL = 0;
 
   //* Create publishers, subscriber, and service
